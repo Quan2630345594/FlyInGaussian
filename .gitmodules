@@ -1,0 +1,3 @@
+[submodule "submodules/GS-SDF"]
+	path = submodules/GS-SDF
+	url = https://github.com/hku-mars/GS-SDF.git

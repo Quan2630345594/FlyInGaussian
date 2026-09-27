@@ -1,0 +1,31 @@
+gs_model:
+  enabled: true
+  ply_path: /path/to/gs-sdf/output/run/model/gs.ply
+  sh_degree: 0
+  render_width: 212
+  render_height: 120
+  horizontal_fov: 87.0
+  near: 0.01
+  far: 4.5
+  background: 0
+  replace_isaac_camera: true
+  observation: depth
+  render_batch_size: 16
+  alpha_threshold: 0.01
+  visualize: false
+  publish_rgb: false
+  publish_depth: false
+  cam_offset: [0.15, 0.0, 0.1]
+
+collision_mesh:
+  enabled: true
+  mesh_path: /path/to/gs-sdf/output/run/gs_log/mesh_0.020000.ply
+  scale: 1.0
+  rotation_rpy_deg: [0.0, 0.0, 0.0]
+  translation: [0.0, 0.0, 0.0]
+  static_friction: 1.0
+  dynamic_friction: 1.0
+  restitution: 0.0
+environment:
+  disable_random_obstacles: true
+  create_ground_plane: false
