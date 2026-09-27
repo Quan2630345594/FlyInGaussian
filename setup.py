@@ -1,7 +1,7 @@
 from setuptools import find_namespace_packages, setup
 
 setup(
-    name='flyingaussian',
+    name='gaussiangym',
     version='0.1.0',
     author='Quan2630345594',
     license="BSD 3-Clause",

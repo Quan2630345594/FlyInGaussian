@@ -1,192 +1,132 @@
 # FlyInGaussian
 
-FlyInGaussian is a quadrotor reinforcement-learning simulator that combines NVIDIA Isaac Gym physics with 3D Gaussian Splatting (3DGS) observations. A GS-SDF Gaussian model supplies RGB or depth images, while the triangle mesh reconstructed from the same GS-SDF run supplies the static collision geometry.
+FlyInGaussian 是一个面向四旋翼强化学习的 GPU 并行仿真项目，将 NVIDIA Isaac Gym 的动力学与 3D Gaussian Splatting（3DGS）场景结合：
 
-The project keeps the PPO training pipeline and the Hovering, Balloon, Tracking, Avoid, Planning, Customized, DepthGen and multi-agent Planning environments inherited from AirGym. The Gaussian scene integration is optional, so the original non-Gaussian tasks remain available.
+- 外部训练好的 3DGS PLY 模型提供 RGB 或深度观测。
+- 与模型配准的三角网格提供静态碰撞几何。
+- 保留 AirGym 的 PPO 训练流程以及 Hovering、Balloon、Tracking、Avoid、Planning 等任务。
+- 只有传入 `--scene-config` 时才启用高斯渲染和网格碰撞，原有任务仍可独立运行。
 
-## Scene Pipeline
-
-```text
-GS-SDF training output
-  model/gs.ply                 -> batched RGB/depth rendering
-  gs_log/mesh_<resolution>.ply -> Isaac Gym triangle-mesh collision
-                                      |
-drone state -> camera pose -> policy image + state -> PPO action
-                                      |
-                             Isaac Gym dynamics/contact
-```
-
-The same scale, roll/pitch/yaw and translation are applied to rendering and collision geometry. Scene paths are supplied through a local YAML file and are not committed to Git.
-
-## Requirements
+## 环境要求
 
 - Ubuntu 20.04
-- NVIDIA GPU and CUDA 11.8 or a compatible CUDA toolchain
-- Python 3.8
-- PyTorch 2.4.1
+- NVIDIA GPU、CUDA 11.8
+- Conda、Python 3.8
 - NVIDIA Isaac Gym Preview 4
-- CMake 3.18 or newer
-- `rlPx4Controller`, PyTorch3D, OpenCV and trimesh
+- CMake 3.18 或更高版本
 
-Isaac Gym is distributed separately by NVIDIA and is not included in this repository.
+Isaac Gym 需要从 NVIDIA 单独下载，本仓库不包含其安装包。
 
-## Installation
+## 安装
 
-Clone all submodules:
+克隆仓库及全部子模块：
 
 ```bash
 git clone --recursive https://github.com/Quan2630345594/FlyInGaussian.git
 cd FlyInGaussian
 ```
 
-Install system prerequisites such as `libeigen3-dev`, a CUDA compiler and CMake first. The setup helper creates or reuses the Conda environment, installs Python dependencies and installs `rlPx4Controller`. If Isaac Gym has already been extracted to `~/isaacgym`, it is installed automatically; otherwise the script prints the remaining manual step.
-
-```bash
-chmod +x configuration.sh
-./configuration.sh
-conda activate flyingaussian
-```
-
-Set `ISAAC_GYM_ROOT` or `RLPX4_ROOT` when those projects are stored elsewhere. The script never removes an existing Conda environment.
-
-To initialize submodules in an existing checkout:
+如果已经克隆过仓库：
 
 ```bash
 git submodule update --init --recursive
 ```
 
-## Build The Renderer
+`submodules/GS-SDF` 仅提供 3DGS 渲染器所需的接口、头文件和 CUDA 实现，本项目不会使用该子模块训练模型。
 
-The renderer extension is compiled against the active Python and PyTorch environment. No prebuilt `.so` is stored in Git.
+安装脚本会创建或复用 `gaussiangym` Conda 环境，并安装 PyTorch、PyTorch3D、`rlPx4Controller` 和本项目。默认从 `~/isaacgym` 安装 Isaac Gym，也可以指定其他位置：
 
 ```bash
-conda activate flyingaussian
+chmod +x configuration.sh
+ISAAC_GYM_ROOT=/path/to/isaacgym ./configuration.sh
+conda activate gaussiangym
+```
+
+脚本不会删除已有 Conda 环境。也可以通过 `RLPX4_ROOT` 指定 `rlPx4Controller` 的目录。
+
+## 编译 3DGS 渲染器
+
+渲染器需要在目标机器上使用当前 Python、PyTorch 和 CUDA 环境编译：
+
+```bash
+conda activate gaussiangym
 cmake -S airgym/gs_renderer -B build/gs_renderer \
-  -DPython3_EXECUTABLE="$(which python3)"
+  -DPython3_EXECUTABLE="$(which python)"
 cmake --build build/gs_renderer -j"$(nproc)"
 ```
 
-The build writes `airgym/gs_renderer/_gs_bridge.so`, which is ignored by Git.
-
-Test a Gaussian model without starting Isaac Gym:
+编译结果为 `airgym/gs_renderer/_gs_bridge.so`。可在不启动 Isaac Gym 的情况下测试渲染：
 
 ```bash
-python3 airgym/gs_renderer/test_render.py \
-  --ply /path/to/gs-sdf/output/run/model/gs.ply \
+python airgym/gs_renderer/test_render.py \
+  --ply models/my_scene/gs.ply \
   --sh-degree 0 --no-viz
 ```
 
-## Export A Collision Mesh
+## 准备场景模型
 
-A standalone `gs.ply` does not contain a triangle mesh. Mesh export requires the complete GS-SDF run, including `local_map_checkpoint.pt`, `as_occ_prior.ply`, the run configuration and the original data path.
-
-Build GS-SDF according to its documentation, then open the complete run directory:
-
-```bash
-./submodules/GS-SDF/build/neural_mapping_node view \
-  /path/to/gs-sdf/output/run
-```
-
-In the GS-SDF terminal, enter:
+请在其他项目或机器上完成 3DGS 训练和网格重建，再将配准好的模型文件放入本项目的 `models/` 目录。例如：
 
 ```text
-m 0.02
+models/my_scene/
+├── gs.ply      # 3DGS 视觉模型
+└── mesh.ply    # Isaac Gym 碰撞网格
 ```
 
-The mesh is normally written to:
+`models/` 已被 Git 忽略，不会提交模型数据。用于仿真前建议删除漂浮的小型三角面组件，并对过密网格进行简化；孤立顶点不会碰撞，但所有有效三角面都会进入 PhysX。
 
-```text
-/path/to/gs-sdf/output/run/gs_log/mesh_0.020000.ply
-```
+## 场景配置
 
-If mesh culling is enabled, `mesh_culled_0.020000.ply` is also produced. A coarser mesh or a decimated copy is recommended for simulation.
-
-In the non-ROS GS-SDF build, the interactive resolution argument may only affect the filename. Set `export_resolution` in the GS-SDF scene configuration when an exact resolution is required.
-
-Replica, FAST-LIVO and COLMAP GS-SDF outputs normally keep the mesh and Gaussian model in the same coordinate system. NeuralRGBD data may apply an `(x, y, z) -> (x, z, -y)` mesh conversion and must be calibrated before training.
-
-## Scene Configuration
-
-Copy `configs/scene.example.yaml` outside the repository or to a file ending in `.local.yaml`, then edit the model paths and transform:
+复制配置模板并修改本地模型路径：
 
 ```bash
 cp configs/scene.example.yaml configs/my_scene.local.yaml
 ```
 
-Important fields:
+模板中的相对路径以 YAML 文件所在目录为基准，因此 `configs/my_scene.local.yaml` 可以使用 `../models/my_scene/gs.ply` 和 `../models/my_scene/mesh.ply`。`.local.yaml` 文件同样不会提交到 Git。主要配置项如下：
 
-| Field | Meaning |
+| 配置项 | 说明 |
 | --- | --- |
-| `gs_model.ply_path` | GS-SDF `model/gs.ply` |
-| `gs_model.observation` | `depth` for Planning; `rgb` is available only to custom three-channel policies |
-| `gs_model.render_batch_size` | Number of environments rendered in one rasterizer call |
-| `collision_mesh.mesh_path` | GS-SDF triangle mesh PLY |
-| `collision_mesh.scale` | Uniform scene scale |
-| `collision_mesh.rotation_rpy_deg` | Scene rotation in XYZ roll/pitch/yaw degrees |
-| `collision_mesh.translation` | Scene translation in simulation metres |
-The built-in Planning task resets all parallel actors into the same world-space scene and isolates them with collision groups. FlyInGaussian therefore creates one shared static triangle mesh instead of duplicating a large mesh for every environment.
+| `gs_model.ply_path` | 外部训练好的 3DGS PLY 模型 |
+| `gs_model.observation` | Planning 使用 `depth`；`rgb` 仅适用于自定义三通道策略 |
+| `gs_model.render_batch_size` | 单次批量渲染的环境数量 |
+| `collision_mesh.mesh_path` | 用于 PhysX 的三角网格 |
+| `collision_mesh.scale` | 场景统一缩放比例 |
+| `collision_mesh.rotation_rpy_deg` | XYZ 顺序的滚转、俯仰、偏航角，单位为度 |
+| `collision_mesh.translation` | 场景在仿真坐标系中的平移，单位为米 |
 
-## Training
+缩放、旋转和平移会同时用于视觉与碰撞坐标对齐。当前碰撞网格是全局静态场景，不会为每个并行环境复制一份。
 
-First verify the original non-image training path:
+## 训练与推理
+
+先验证不使用 3DGS 的基础任务：
 
 ```bash
-python3 scripts/runner.py \
-  --task hovering --ctl_mode rate --headless --num_envs 4
+python scripts/runner.py \
+  --train --task hovering --ctl_mode rate --headless --num_envs 4
 ```
 
-Train Planning with the Gaussian scene and mesh collision:
+使用 3DGS 深度观测和网格碰撞训练 Planning：
 
 ```bash
-python3 scripts/runner.py \
-  --task planning --ctl_mode rate --headless --num_envs 4 \
+python scripts/runner.py \
+  --train --task planning --ctl_mode rate --headless --num_envs 4 \
   --scene-config configs/my_scene.local.yaml
 ```
 
-Start with 4 to 32 environments. Gaussian rasterization and detailed triangle meshes have substantially higher GPU memory requirements than the original primitive-based Planning task.
-
-Checkpoints and TensorBoard logs are written below `runs/`.
-
-## Playing A Checkpoint
+加载 checkpoint 进行推理：
 
 ```bash
-python3 scripts/runner.py \
+python scripts/runner.py \
   --play --task planning --ctl_mode rate --num_envs 4 \
   --checkpoint /path/to/checkpoint.pth \
   --scene-config configs/my_scene.local.yaml
 ```
 
-The legacy pretrained Planning checkpoint expects normalized single-channel depth with shape `[1, 212, 120]`. FlyInGaussian keeps this observation contract when `gs_model.observation: depth` is selected.
+支持的控制模式为 `pos`、`vel`、`atti`、`rate` 和 `prop`。可用任务包括 `hovering`、`customized`、`balloon`、`avoid`、`tracking`、`planning`、`maplanning` 和 `depthgen`。训练日志与 checkpoint 默认写入 `runs/`。
 
-## Other Tasks
+建议先使用 4 至 32 个环境验证场景。3DGS 渲染和高精度三角网格会显著增加显存及 PhysX 开销。
 
-The inherited tasks remain registered:
+## 注意事项
 
-```bash
-python3 airgym/scripts/example.py --task hovering --ctl_mode pos --num_envs 4
-python3 airgym/scripts/ma_example.py --task maplanning --ctl_mode pos --num_envs 4
-```
-
-Supported control modes are `pos`, `vel`, `atti`, `rate` and `prop`.
-
-## Model Data
-
-Gaussian models, reconstructed meshes, datasets, local scene YAML files, extension binaries and training runs are intentionally excluded from Git. Verify that a Gaussian model and mesh are legally redistributable before publishing them separately.
-
-FlyInGaussian is intended to run from a source checkout installed with `pip install -e .`; wheel packaging of Isaac Gym assets is not supported.
-
-## Limitations
-
-- Isaac Gym triangle meshes are static and simulation-global.
-- Very detailed meshes should be decimated before use.
-- Contact-force reporting against triangle meshes must be validated for each PhysX configuration.
-- The GS-SDF renderer requires CUDA and a locally compiled extension.
-- Full simulation tests require Isaac Gym, which cannot be installed from PyPI.
-
-## Origin And Attribution
-
-FlyInGaussian is a derivative project, not an official AirGym or GS-SDF release.
-
-The simulator and training code are based on [emNavi/AirGym](https://github.com/emNavi/AirGym), which itself acknowledges and derives from [Aerial Gym Simulator](https://github.com/ntnu-arl/aerial_gym_simulator). The PPO implementation under `lib/` is derived from `rl_games` 1.6.1. Gaussian rendering and mesh reconstruction use [hku-mars/GS-SDF](https://github.com/hku-mars/GS-SDF) as a pinned submodule.
-
-The original BSD-3-Clause copyright and license are retained in `LICENSE`. Additional notices are listed in `THIRD_PARTY_NOTICES.md`; each submodule also retains its own license.
+- Planning 的内置策略要求单通道深度观测，默认尺寸为 `[1, 212, 120]`。

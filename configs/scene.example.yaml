@@ -1,6 +1,6 @@
 gs_model:
   enabled: true
-  ply_path: /path/to/gs-sdf/output/run/model/gs.ply
+  ply_path: ../models/my_scene/gs.ply
   sh_degree: 0
   render_width: 212
   render_height: 120
@@ -19,7 +19,7 @@ gs_model:
 
 collision_mesh:
   enabled: true
-  mesh_path: /path/to/gs-sdf/output/run/gs_log/mesh_0.020000.ply
+  mesh_path: ../models/my_scene/mesh.ply
   scale: 1.0
   rotation_rpy_deg: [0.0, 0.0, 0.0]
   translation: [0.0, 0.0, 0.0]

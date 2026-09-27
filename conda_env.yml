@@ -1,4 +1,4 @@
-name: flyingaussian
+name: gaussiangym
 channels:
   # - pytorch
   # - conda-forge

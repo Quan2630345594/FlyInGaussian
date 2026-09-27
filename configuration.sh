@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_NAME="flyingaussian"
+ENV_NAME="gaussiangym"
 ISAAC_GYM_ROOT="${ISAAC_GYM_ROOT:-$HOME/isaacgym}"
 RLPX4_ROOT="${RLPX4_ROOT:-$HOME/rlPx4Controller}"
 
@@ -18,7 +18,7 @@ source "${CONDA_DIR}/etc/profile.d/conda.sh"
 if conda env list | grep -Eq "^[[:space:]]*${ENV_NAME}[[:space:]]"; then
     echo "Using existing Conda environment: ${ENV_NAME}"
 else
-    conda env create -f "${ROOT_DIR}/airgym_conda_env.yml"
+    conda env create -f "${ROOT_DIR}/conda_env.yml"
 fi
 conda activate "${ENV_NAME}"
 
